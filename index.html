@@ -1,0 +1,1071 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PDF a mapa mental</title>
+<meta name="description" content="Convierte un paper o libro en PDF en un mapa mental (markmap) sin IA. Todo se procesa en tu navegador.">
+<style>
+  :root {
+    --bg: #f6f4ef; --surface: #ffffff; --ink: #1c2a2e; --muted: #5d6b6e; --line: #dcd8cd;
+    --accent: #0f6b66; --accent-ink: #ffffff; --accent-soft: #e3f0ee; --warn: #8a4b08; --warn-bg: #fdf1dd;
+    --err: #9b1c1c; --err-bg: #fbe9e9; --shadow: 0 1px 2px rgba(20,30,30,.06), 0 6px 24px rgba(20,30,30,.06);
+  }
+  :root[data-tema="oscuro"] {
+    --bg: #11181a; --surface: #182225; --ink: #e8efef; --muted: #9db0b3; --line: #2b3a3d;
+    --accent: #4fc3b8; --accent-ink: #06201e; --accent-soft: #1d3436; --warn: #f0b765; --warn-bg: #2d2412;
+    --err: #ff9d9d; --err-bg: #3a1c1c; --shadow: none;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-tema="claro"]) {
+      --bg: #11181a; --surface: #182225; --ink: #e8efef; --muted: #9db0b3; --line: #2b3a3d;
+      --accent: #4fc3b8; --accent-ink: #06201e; --accent-soft: #1d3436; --warn: #f0b765; --warn-bg: #2d2412;
+      --err: #ff9d9d; --err-bg: #3a1c1c; --shadow: none;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { color-scheme: light dark; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 16px 56px; }
+  header.hero { padding: 40px 0 22px; display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; }
+  h1 { font: 600 clamp(1.7rem, 4vw, 2.5rem)/1.12 "Iowan Old Style", "Palatino Linotype", Georgia, serif;
+    margin: 0 0 8px; letter-spacing: -.01em; }
+  .lead { margin: 0; color: var(--muted); max-width: 62ch; }
+  .privacy { display: inline-flex; gap: 8px; align-items: center; margin-top: 14px; font-size: .88rem;
+    background: var(--accent-soft); color: var(--accent); padding: 6px 12px; border-radius: 999px; font-weight: 500; }
+  .tema { appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
+    border-radius: 10px; padding: 8px 12px; cursor: pointer; font: inherit; font-size: .9rem; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); }
+  .panel { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 0; }
+  @media (max-width: 860px) { .panel { grid-template-columns: 1fr; } }
+  .drop { margin: 18px; border: 2px dashed var(--line); border-radius: 12px; padding: 34px 18px; text-align: center;
+    cursor: pointer; transition: border-color .15s, background .15s; display: flex; flex-direction: column;
+    justify-content: center; gap: 6px; min-height: 210px; }
+  .drop:hover, .drop:focus-visible, .drop.over { border-color: var(--accent); background: var(--accent-soft); outline: none; }
+  .drop strong { font-size: 1.08rem; }
+  .drop small { color: var(--muted); }
+  .drop .archivo { margin-top: 8px; font-weight: 600; color: var(--accent); word-break: break-word; }
+  .opciones { padding: 18px 22px 18px 6px; display: grid; gap: 14px; align-content: start; }
+  @media (max-width: 860px) { .opciones { padding: 0 18px 18px; } }
+  .opciones h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 2px 0 -4px; }
+  .fila { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  label.campo { display: grid; gap: 4px; font-size: .88rem; color: var(--muted); }
+  select, input[type=number] { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+    border-radius: 9px; padding: 8px 10px; width: 100%; }
+  .check { display: flex; gap: 8px; align-items: center; font-size: .92rem; cursor: pointer; }
+  .check input { width: 18px; height: 18px; accent-color: var(--accent); }
+  .btn { appearance: none; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit;
+    font-size: .92rem; padding: 9px 14px; border-radius: 10px; cursor: pointer; transition: transform .05s, border-color .15s; }
+  .btn:hover { border-color: var(--accent); }
+  .btn:active { transform: translateY(1px); }
+  .btn.primario { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .acciones { display: flex; flex-wrap: wrap; gap: 8px; }
+  .progreso { height: 6px; border-radius: 6px; background: var(--line); overflow: hidden; margin: 0 18px 16px; display: none; }
+  .progreso.on { display: block; }
+  .progreso > i { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s; }
+  .estado { margin: 0 18px 14px; font-size: .9rem; color: var(--muted); min-height: 1.3em; }
+  .msg { margin: 0 18px 16px; padding: 10px 14px; border-radius: 10px; font-size: .92rem; display: none; }
+  .msg.err { display: block; background: var(--err-bg); color: var(--err); }
+  .msg.warn { display: block; background: var(--warn-bg); color: var(--warn); }
+  #resultado { margin-top: 22px; display: none; }
+  #resultado.on { display: block; }
+  .barra { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { font-size: .78rem; padding: 3px 10px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  .tabs { display: flex; gap: 4px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+  .tab { appearance: none; background: none; border: 0; border-bottom: 3px solid transparent; font: inherit; color: var(--muted);
+    padding: 10px 12px; cursor: pointer; font-weight: 600; }
+  .tab[aria-selected=true] { color: var(--accent); border-bottom-color: var(--accent); }
+  .vista { display: none; }
+  .vista.on { display: block; }
+  #mapaWrap { position: relative; height: min(76vh, 780px); min-height: 460px; background: var(--surface); border-radius: 0 0 16px 16px; }
+  #mapaWrap:fullscreen { height: 100vh; border-radius: 0; }
+  #mapa { width: 100%; height: 100%; display: block; --markmap-text-color: var(--ink); --markmap-circle-open-bg: var(--surface);
+    --markmap-a-color: var(--accent); --markmap-code-bg: var(--accent-soft); --markmap-code-color: var(--ink); }
+  .flotante { position: absolute; right: 12px; top: 12px; display: flex; gap: 6px; }
+  .flotante .btn { padding: 6px 10px; font-size: .82rem; box-shadow: var(--shadow); }
+  .editor { padding: 14px 16px 16px; display: grid; gap: 10px; }
+  textarea { width: 100%; min-height: 420px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 12px; resize: vertical; }
+  .notas { margin-top: 26px; color: var(--muted); font-size: .9rem; display: grid; gap: 6px; }
+  .notas b { color: var(--ink); }
+  footer { margin-top: 30px; color: var(--muted); font-size: .82rem; }
+  a { color: var(--accent); }
+  :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="hero">
+    <div>
+      <h1>PDF a mapa mental</h1>
+      <p class="lead">Sube un paper o un libro en PDF y obtén un mapa mental interactivo (markmap) con su estructura, palabras clave y oraciones centrales de cada sección. Sin IA generativa: es extracción y resumen estadístico.</p>
+      <span class="privacy" role="note">🔒 Tu PDF no se sube a ningún servidor: se procesa en tu navegador.</span>
+    </div>
+    <button class="tema" id="btnTema" type="button" aria-label="Cambiar tema claro u oscuro">Tema</button>
+  </header>
+
+  <section class="card" aria-label="Cargar y configurar">
+    <div class="panel">
+      <div>
+        <div class="drop" id="drop" tabindex="0" role="button" aria-label="Elegir un archivo PDF">
+          <strong>Arrastra tu PDF aquí</strong>
+          <small>o haz clic para elegir un archivo</small>
+          <span class="archivo" id="nombreArchivo"></span>
+        </div>
+        <input type="file" id="archivo" accept="application/pdf,.pdf" hidden>
+      </div>
+      <div class="opciones">
+        <h2>Opciones</h2>
+        <div class="fila">
+          <label class="campo">Tipo de documento
+            <select id="modo">
+              <option value="auto">Detectar automáticamente</option>
+              <option value="paper">Paper (IMRaD)</option>
+              <option value="libro">Libro / informe</option>
+            </select>
+          </label>
+          <label class="campo">Idioma
+            <select id="idioma">
+              <option value="auto">Detectar</option>
+              <option value="es">Español</option>
+              <option value="en">Inglés</option>
+            </select>
+          </label>
+        </div>
+        <div class="fila">
+          <label class="campo">Palabras clave por sección
+            <input type="number" id="keywords" min="0" max="8" value="4">
+          </label>
+          <label class="campo">Oraciones por sección
+            <input type="number" id="oraciones" min="0" max="3" value="1">
+          </label>
+        </div>
+        <div class="fila">
+          <label class="campo">Niveles abiertos al inicio
+            <select id="expandir">
+              <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option>
+            </select>
+          </label>
+          <label class="check" style="align-self:end;padding-bottom:9px">
+            <input type="checkbox" id="soloEstructura"> Solo estructura
+          </label>
+        </div>
+        <div class="acciones">
+          <button class="btn primario" id="btnGenerar" type="button" disabled>Generar mapa</button>
+        </div>
+      </div>
+    </div>
+    <div class="progreso" id="progreso" aria-hidden="true"><i id="barra"></i></div>
+    <p class="estado" id="estado" role="status" aria-live="polite"></p>
+    <div class="msg" id="msg" role="alert"></div>
+  </section>
+
+  <section class="card" id="resultado" aria-label="Resultado">
+    <div class="barra">
+      <div class="chips" id="chips"></div>
+      <div class="acciones">
+        <button class="btn" id="btnMd" type="button">Descargar .md</button>
+        <button class="btn" id="btnHtml" type="button">Descargar HTML interactivo</button>
+      </div>
+    </div>
+    <div class="tabs" role="tablist">
+      <button class="tab" role="tab" id="tabMapa" aria-selected="true" aria-controls="vMapa">Mapa</button>
+      <button class="tab" role="tab" id="tabMd" aria-selected="false" aria-controls="vMd">Markdown (editable)</button>
+    </div>
+    <div class="vista on" id="vMapa" role="tabpanel" aria-labelledby="tabMapa">
+      <div id="mapaWrap">
+        <svg id="mapa" role="img" aria-label="Mapa mental generado"></svg>
+        <div class="flotante">
+          <button class="btn" id="btnAjustar" type="button">Ajustar</button>
+          <button class="btn" id="btnPantalla" type="button">Pantalla completa</button>
+        </div>
+      </div>
+    </div>
+    <div class="vista" id="vMd" role="tabpanel" aria-labelledby="tabMd">
+      <div class="editor">
+        <textarea id="md" spellcheck="false" aria-label="Markdown del mapa"></textarea>
+        <div class="acciones">
+          <button class="btn primario" id="btnActualizar" type="button">Actualizar mapa con mis cambios</button>
+          <button class="btn" id="btnCopiar" type="button">Copiar Markdown</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="notas" aria-label="Notas">
+    <div><b>Funciona mejor con</b> PDF con texto seleccionable. Si el PDF es una imagen escaneada, aplica OCR antes.</div>
+    <div><b>Libros:</b> si el PDF trae marcadores (índice), se usan como jerarquía; si no, se detectan los títulos por el tamaño y el estilo de la letra.</div>
+    <div><b>Papers:</b> se reconocen Introducción, Método, Resultados, Discusión, Limitaciones y Conclusiones, y se omiten las referencias.</div>
+    <div><b>Revisa el resultado:</b> las palabras clave y las oraciones se eligen por estadística, no por comprensión del texto. Puedes corregir el Markdown en la pestaña correspondiente.</div>
+  </section>
+  <footer>Librerías: pdf.js (Mozilla) para leer el PDF y markmap para dibujar el mapa. Todo corre localmente en tu navegador.</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-view@0.18.12/dist/browser/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-lib@0.18.12/dist/browser/index.iife.js"></script>
+<script type="module">
+// ===== núcleo: pdf2markmap =====
+// pdf2markmap.js — núcleo (sin DOM, sin LLM). Funciona en el navegador y en Node.
+// Entrada: un PDFDocumentProxy de pdf.js.  Salida: Markdown listo para markmap.
+// Port a JavaScript de pdf2markmap.py: jerarquía por TOC/tipografía/IMRaD,
+// resumen extractivo (TextRank propio) y palabras clave por TF-IDF entre secciones.
+
+// ------------------------------------------------------------------ constantes
+const palabras = (s) => new Set(s.split(/\s+/).filter(Boolean));
+
+const STOP = {
+  en: palabras(`a about above after again against all also am an and any are as at be because been before being below
+    between both but by can could did do does doing down during each few for from further had has have having he her
+    here hers him his how i if in into is it its itself just me more most my no nor not of off on once only or other our
+    out over own same she should so some such than that the their them then there these they this those through to too
+    under until up very was we were what when where which while who whom why will with would you your may might
+    et al fig table`),
+  es: palabras(`a al algo algunas algunos ante antes como con contra cual cuando de del desde donde durante e el ella
+    ellas ellos en entre era es esa esas ese eso esos esta estaba están este esto estos fue ha han hasta hay la las le
+    les lo los más me mi muy no nos o otra otro para pero por porque que qué se si sin sobre su sus también te tiene
+    todo tu un una uno unos y ya`),
+};
+
+const GENERICAS = {
+  en: palabras(`study present current people found results result participants participant respondents sample
+    analysis analyses measure measures table figure first second third however thus given within among toward one two
+    three several many some young provide provided using used use show shows showed per mentioned explained asked
+    whether cannot make made makes named different common way ways often including investigate explore suggest
+    suggests argued argues therefore since towards likely significantly based related even still much well must`),
+  es: palabras(`estudio presente actual personas resultados resultado participantes muestra análisis medida medidas tabla
+    figura primero segundo tercero sin embargo así dado entre varios muchos algunos jóvenes`),
+};
+
+const IMRAD = [
+  [/^(abstract|resumen)$/i, "Resumen"],
+  [/^(introduction|introducci[oó]n|background|antecedentes)/i, "Introducción / Problema"],
+  [/^(literature review|review of (the )?literature|theoretical (framework|background)|marco te[oó]rico|revisi[oó]n de (la )?literatura)/i, "Marco teórico"],
+  [/^(the present study|present study|research questions?|hypothes[ie]s|objectives?|objetivos?|hip[oó]tesis)/i, "Preguntas / Objetivos"],
+  [/^(method|methods|methodology|materials and methods|data and methods|metodolog[ií]a|m[eé]todo|datos y m[eé]todos|data|datos)/i, "Método"],
+  [/^(results?|findings|resultados|an[aá]lisis|analysis)/i, "Resultados"],
+  [/^(discussion|discusi[oó]n)/i, "Discusión"],
+  [/^(implications?|implicaciones)/i, "Implicaciones"],
+  [/^(limitations?|limitaciones)/i, "Limitaciones"],
+  [/^(conclusions?|conclusiones|concluding remarks)/i, "Conclusiones"],
+  [/^(references?|bibliography|referencias|bibliograf[ií]a|works cited|notes?|notas|acknowledg|agradecimientos|appendix|ap[eé]ndice)/i, "__DESCARTAR__"],
+];
+
+const RE_NUM_HEAD = /^(\d+(\.\d+){0,3}|[IVXLC]+\.|cap[ií]tulo\s+\d+|chapter\s+\d+|parte\s+\w+|part\s+\w+)[\s.:\-–]+\S/i;
+const RE_PAGENUM = /^\s*\d{1,4}\s*$/;
+const RE_FIGTAB = /^(table|figure|fig\.|tabla|figura|cuadro|gr[aá]fica|gr[aá]fico)\s*\d+/i;
+const RE_KEYWORDS = /^\s*(key\s?words?|palabras\s+clave)\s*[:\-–]\s*(.*)$/i;
+const RE_ABS_LABEL = /^\s*(abstract|resumen)\s*[:.\-–]?\s*(.*)$/i;
+const RE_ABREV = /\b(et al|e\.g|i\.e|vs|cf|fig|figs|eq|no|dr|prof|sr|sra|etc|pp|p|vol|ed|eds|u\.s)\.$/i;
+
+// ------------------------------------------------------------------ utilidades
+const COMPUESTOS = new Set(`self well low high non semi long short cross half ex vice middle year old first second
+  mixed beyond co anti pre post auto socio psycho multi inter`.split(/\s+/));
+const VOCAB_GUION = new Set(); // palabras con guion que aparecen "enteras" en el documento
+
+function unirGuion(a, b) {
+  if (VOCAB_GUION.has(`${a}-${b}`.toLowerCase()) || COMPUESTOS.has(a.toLowerCase())) return `${a}-${b}`;
+  return a + b; // palabra cortada por la maquetación
+}
+
+function limpiar(t) {
+  t = t.replace(/­/g, "");
+  t = t.replace(/(\w)-\n(\w)/g, "$1$2");
+  t = t.replace(/\s*\n\s*/g, " ");
+  t = t.replace(/\s+/g, " ");
+  t = t.replace(/([A-Za-záéíóúñ]{2,})- ([a-záéíóúñ]{2,})/g, (m, a, b) => unirGuion(a, b));
+  return t.trim();
+}
+
+function esTituloPython(t) { // equivalente a str.istitle() de Python
+  let prevCased = false, ok = true, algunaCased = false;
+  for (const c of t) {
+    const up = c !== c.toLowerCase(), low = c !== c.toUpperCase();
+    if (up) { if (prevCased) ok = false; prevCased = true; algunaCased = true; }
+    else if (low) { if (!prevCased) ok = false; prevCased = true; algunaCased = true; }
+    else prevCased = false;
+  }
+  return ok && algunaCased;
+}
+const esMayus = (t) => t === t.toUpperCase() && t !== t.toLowerCase();
+
+function esTituloValido(t) {
+  t = t.trim();
+  if (t.length < 2 || t.length > 140) return false;
+  if (/[,;]$/.test(t)) return false;
+  const letras = [...t].filter((c) => c.toLowerCase() !== c.toUpperCase()).length;
+  return letras >= 2 && letras / Math.max(t.length, 1) > 0.5;
+}
+
+// --------------------------------------------------- 1. extracción de líneas
+const BOLD = /bold|black|heavy|semibold|demi/i;
+const ITAL = /italic|oblique|\bital\b/i;
+
+async function extraerLineas(doc, progreso = () => {}) {
+  const lineas = [];
+  const npag = doc.numPages;
+  for (let p = 1; p <= npag; p++) {
+    const page = await doc.getPage(p);
+    const vp = page.view;
+    const H = vp[3] - vp[1];
+    const tc = await page.getTextContent();
+    try { await page.getOperatorList(); } catch (e) { /* las fuentes no cargan: sin negrita/cursiva */ }
+    const cache = {};
+    const infoFuente = (fn) => {
+      if (cache[fn]) return cache[fn];
+      let name = "";
+      try { name = page.commonObjs.get(fn).name || ""; } catch (e) { /* no resuelta */ }
+      return (cache[fn] = { bold: BOLD.test(name), ital: ITAL.test(name) });
+    };
+    let cur = null;
+    const volcar = () => {
+      if (!cur) return;
+      const nw = cur.spans.filter((s) => s.t.trim());
+      if (nw.length) {
+        const total = nw.reduce((a, s) => a + s.t.length, 0) || 1;
+        const size = nw.reduce((a, s) => a + s.size * s.t.length, 0) / total;
+        const frac = (k) => nw.reduce((a, s) => a + (s[k] ? s.t.length : 0), 0) / total;
+        lineas.push({
+          pag: p, texto: cur.spans.map((s) => s.t).join("").trim(), size,
+          bold: frac("bold") > 0.6, ital: frac("ital") > 0.6,
+          y: cur.y / H, x: cur.x, spans: nw,
+        });
+      }
+      cur = null;
+    };
+    for (const it of tc.items) {
+      if (!("str" in it)) continue;
+      const tr = it.transform;
+      const size = Math.hypot(tr[0], tr[1]) || it.height || 0;
+      const y = vp[3] - tr[5]; // distancia desde arriba
+      if (cur && Math.abs(y - cur.y) > 0.7 * cur.maxSize) volcar();
+      if (it.str.length === 0) { if (it.hasEOL) volcar(); continue; }
+      const f = infoFuente(it.fontName);
+      if (!cur) cur = { spans: [], y, x: tr[4], maxSize: size };
+      cur.spans.push({ t: it.str, size, bold: f.bold, ital: f.ital });
+      cur.maxSize = Math.max(cur.maxSize, size);
+      if (it.hasEOL) volcar();
+    }
+    volcar();
+    page.cleanup();
+    if (p % 5 === 0 || p === npag) progreso(`Leyendo página ${p} de ${npag}`, p / npag);
+  }
+  const filtradas = filtrarCabeceras(lineas, npag);
+  // si el navegador no pudo leer ninguna fuente (sin negrita/cursiva), se infiere "negrita" por tamaño mayor al cuerpo
+  if (!filtradas.some((l) => l.bold || l.ital)) {
+    const cuerpo = tamanoCuerpo(filtradas);
+    for (const l of filtradas) if (l.size >= cuerpo + 0.5) l.bold = true;
+    filtradas.sinEstilos = true;
+  }
+  return filtradas;
+}
+
+function filtrarCabeceras(lineas, npag) {
+  if (npag < 4) return lineas.filter((l) => !RE_PAGENUM.test(l.texto));
+  const norm = (s) => s.toLowerCase().replace(/\d+/g, "#").trim();
+  const cuenta = new Map();
+  for (const l of lineas) if (l.y < 0.08 || l.y > 0.92) cuenta.set(norm(l.texto), (cuenta.get(norm(l.texto)) || 0) + 1);
+  const umbral = Math.max(3, npag * 0.3);
+  return lineas.filter((l) => {
+    if (RE_PAGENUM.test(l.texto)) return false;
+    if ((l.y < 0.08 || l.y > 0.92) && (cuenta.get(norm(l.texto)) || 0) >= umbral) return false;
+    return true;
+  });
+}
+
+function tamanoCuerpo(lineas) {
+  const c = new Map();
+  for (const l of lineas) { const k = Math.round(l.size); c.set(k, (c.get(k) || 0) + l.texto.length); }
+  let best = 10, bn = -1;
+  for (const [k, n] of c) if (n > bn) { best = k; bn = n; }
+  return best;
+}
+
+// ------------------------------------------- 2. detección de encabezados
+function detectarEstructura(lineas) {
+  const cuerpo = tamanoCuerpo(lineas);
+  lineas = lineas.filter((l) => l.size >= cuerpo - 1.6); // fuera cabeceras, notas, tablas
+  const cand = new Map(), pags = new Map();
+  for (const l of lineas) {
+    if (esTituloValido(l.texto) && ((l.size >= cuerpo + 0.5 && l.bold) || l.size >= cuerpo + 2.5)) {
+      const k = Math.round(l.size);
+      cand.set(k, (cand.get(k) || 0) + 1);
+      if (!pags.has(k)) pags.set(k, new Set());
+      pags.get(k).add(l.pag);
+    }
+  }
+  for (const k of [...cand.keys()]) {          // el título del documento no es un nivel
+    const ps = pags.get(k);
+    if (k >= cuerpo + 4 && ps.size === 1 && ps.has(1)) cand.delete(k);
+  }
+  const tamanos = [...cand.keys()].sort((a, b) => b - a);
+  const nivelDe = new Map(tamanos.map((s, i) => [s, i + 1]));
+  const nivelBold = tamanos.length + 1, nivelRunin = tamanos.length + 2;
+
+  const eventos = [];
+  let buf = [], tituloDoc = null;
+  const volcar = () => { if (buf.length) { eventos.push(["T", limpiar(buf.join(" "))]); buf = []; } };
+
+  let i = 0;
+  const n = lineas.length;
+  while (i < n) {
+    const l = lineas[i];
+    const t = l.texto.trim();
+    const sz = Math.round(l.size);
+    // título del documento
+    if (tituloDoc === null && l.pag === 1 && l.size >= cuerpo + 4 && esTituloValido(t)) {
+      const partes = [t]; let j = i + 1;
+      while (j < n && Math.round(lineas[j].size) === sz && lineas[j].pag === 1) partes.push(lineas[j++].texto.trim());
+      tituloDoc = limpiar(partes.join(" "));
+      i = j; continue;
+    }
+    // rótulos de tablas/figuras: se ignoran junto con su pie
+    if (RE_FIGTAB.test(t) && (l.bold || l.size < cuerpo)) {
+      let j = i + 1;
+      while (j < n && lineas[j].bold === l.bold && Math.round(lineas[j].size) === sz && lineas[j].pag === l.pag) j++;
+      i = j; continue;
+    }
+    // encabezado por tamaño
+    if (nivelDe.has(sz) && esTituloValido(t) && (l.bold || l.size >= cuerpo + 2.5)) {
+      const partes = [t]; let j = i + 1;
+      while (j < n && Math.round(lineas[j].size) === sz && lineas[j].pag === l.pag &&
+             lineas[j].bold === l.bold && Math.abs(lineas[j].y - lineas[j - 1].y) < 0.06) {
+        partes.push(lineas[j++].texto.trim());
+      }
+      volcar();
+      eventos.push(["H", nivelDe.get(sz), limpiar(partes.join(" ")).replace(/[.:]+$/, "")]);
+      i = j; continue;
+    }
+    // encabezado en negrita del tamaño del cuerpo
+    if (l.bold && l.size >= cuerpo - 0.6 && l.size <= cuerpo + 0.5 && t.length < 90 && esTituloValido(t) &&
+        !t.endsWith(".") && (RE_NUM_HEAD.test(t) || esTituloPython(t) || esMayus(t)) && t.split(/\s+/).length <= 12) {
+      volcar();
+      eventos.push(["H", nivelBold, t.replace(/[.:]+$/, "")]);
+      i++; continue;
+    }
+    // subtítulo "run-in": <i>Título</i>. Texto...
+    if (l.spans.length >= 2) {
+      const ini = [];
+      for (const s of l.spans) { if (s.ital || s.bold) ini.push(s.t); else break; }
+      const unido = ini.join("");
+      const cabeza = unido.trim();
+      const resto = l.spans.map((s) => s.t).join("").slice(unido.length).trim();
+      const puntoAparte = resto.startsWith(".");
+      const minimo = puntoAparte ? 1 : 2;
+      const nw = cabeza ? cabeza.split(/\s+/).length : 0;
+      if (ini.length && (cabeza.endsWith(".") || puntoAparte) && nw >= minimo && nw <= 10 &&
+          resto.replace(/^[. ]+/, "").length > 0 && cabeza[0] === cabeza[0].toUpperCase() &&
+          cabeza[0] !== cabeza[0].toLowerCase() && esTituloValido(cabeza)) {
+        volcar();
+        eventos.push(["H", nivelRunin, cabeza.replace(/[.:]+$/, "")]);
+        buf.push(resto.replace(/^[. ]+/, ""));
+        i++; continue;
+      }
+    }
+    buf.push(t);
+    i++;
+  }
+  volcar();
+  return { tituloDoc, eventos };
+}
+
+function construirArbol(eventos, titulo) {
+  const raiz = { titulo: titulo || "Documento", nivel: 0, orig: 0, texto: [], hijos: [] };
+  const pila = [raiz];
+  for (const ev of eventos) {
+    if (ev[0] === "T") { pila[pila.length - 1].texto.push(ev[1]); continue; }
+    const [, niv, tit] = ev;
+    while (pila.length > 1 && pila[pila.length - 1].orig >= niv) pila.pop();
+    const nodo = { titulo: tit, nivel: pila.length, orig: niv, texto: [], hijos: [] };
+    pila[pila.length - 1].hijos.push(nodo);
+    pila.push(nodo);
+  }
+  return raiz;
+}
+
+async function desdeToc(doc, paginas, titulo) {
+  const outline = await doc.getOutline();
+  if (!outline || !outline.length) return null;
+  const plano = [];
+  const rec = async (items, nivel) => {
+    for (const it of items) {
+      let pag = null;
+      try {
+        let dest = it.dest;
+        if (typeof dest === "string") dest = await doc.getDestination(dest);
+        if (Array.isArray(dest)) {
+          const ref = dest[0];
+          pag = typeof ref === "object" ? (await doc.getPageIndex(ref)) + 1 : ref + 1;
+        }
+      } catch (e) { /* destino roto */ }
+      plano.push({ nivel, titulo: it.title || "", pag });
+      if (it.items && it.items.length) await rec(it.items, nivel + 1);
+    }
+  };
+  await rec(outline, 1);
+  let ult = 1;
+  for (const e of plano) { if (e.pag == null) e.pag = ult; else ult = e.pag; }
+  const raiz = { titulo, nivel: 0, orig: 0, texto: [], hijos: [] };
+  const pila = [raiz];
+  plano.forEach((e, k) => {
+    const sig = k + 1 < plano.length ? plano[k + 1].pag : doc.numPages + 1;
+    let txt = [];
+    for (let p = e.pag; p < Math.max(e.pag + 1, Math.min(sig, doc.numPages + 1)); p++) txt.push((paginas.get(p) || []).join(" "));
+    while (pila.length > 1 && pila[pila.length - 1].orig >= e.nivel) pila.pop();
+    const nodo = { titulo: limpiar(e.titulo), nivel: pila.length, orig: e.nivel, texto: [limpiar(txt.join(" "))], hijos: [] };
+    pila[pila.length - 1].hijos.push(nodo);
+    pila.push(nodo);
+  });
+  return raiz;
+}
+
+// -------------------------------------- 3. resumen extractivo y keywords
+function oraciones(texto) {
+  texto = texto.replace(/\s+/g, " ");
+  const crudas = texto.split(/(?<=[.!?¿])\s+(?=[A-ZÁÉÍÓÚÑ“"(¿¡0-9])/);
+  const out = [];
+  let acum = "";
+  for (const c of crudas) {
+    acum = acum ? `${acum} ${c}`.trim() : c;
+    if (RE_ABREV.test(acum.slice(-12)) || /\b[A-Z]\.$/.test(acum)) continue;
+    out.push(acum); acum = "";
+  }
+  if (acum) out.push(acum);
+  return out.filter((o) => o.split(/\s+/).length >= 6);
+}
+
+const RE_CITA_PAREN = /\s*\([^()]*\b(?:19|20)\d{2}[a-z]?\b[^()]*\)/g;
+const RE_CITA_NARR = /\b(?:[Vv]an |[Dd]e |[Vv]on )?[A-ZÁÉÍÓÚÑ][\wáéíóúñ’'\-]+(?:,? (?:et al\.?|&|and|y) ?[A-ZÁÉÍÓÚÑ]?[\wáéíóúñ’'\-]*)*,? \((?:19|20)\d{2}[a-z]?\)/g;
+
+function quitarCitas(t, narrativas = false) {
+  t = t.replace(RE_CITA_PAREN, "");
+  if (narrativas) t = t.replace(RE_CITA_NARR, "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
+function tokensContenido(s, idioma) {
+  const sw = STOP[idioma] || STOP.en;
+  return (s.toLowerCase().match(/[a-záéíóúñü]{3,}/g) || []).filter((w) => !sw.has(w));
+}
+
+function esRuido(o) {
+  if (o.length > 400 || o.split(/\s+/).length > 60) return true;
+  const cites = (o.match(/\(\s*[A-ZÁÉÍÓÚÑ][^()]{1,60}\d{4}[a-z]?[;,)]/g) || []).length;
+  if (cites >= 3) return true;
+  const citado = (o.match(/“[^”]*”?/g) || []).reduce((a, m) => a + m.length, 0);
+  if (/^\s*["“]/.test(o) || citado > 0.45 * o.length) return true;
+  if (/\b(p|pp)\s*[<>=]|\bSE\s*=|\bb\s*=|\bR2\b|\bκ\b/.test(o)) return true;
+  if (/(?:^|[\s("“])(?:I|I’m|I'm|I’ve|I've|my|me|myself)(?=[\s.,;:!?)”"]|$)/.test(o)) return true; // testimonios
+  const nums = (o.match(/[\d.=<>]+/g) || []).length;
+  return nums > 0.35 * o.split(/\s+/).length;
+}
+
+function textrank(sents, idioma, k, d = 0.85, it = 40) {
+  const n = sents.length;
+  if (n <= k) return sents.map((_, i) => i);
+  const toks = sents.map((s) => new Set(tokensContenido(s, idioma)));
+  const W = Array.from({ length: n }, () => new Float64Array(n));
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      if (toks[i].size && toks[j].size) {
+        let inter = 0;
+        for (const w of toks[i]) if (toks[j].has(w)) inter++;
+        if (inter) W[i][j] = W[j][i] = inter / (Math.log(toks[i].size + 1) + Math.log(toks[j].size + 1));
+      }
+    }
+  }
+  const salida = W.map((r) => r.reduce((a, b) => a + b, 0) || 1);
+  let pr = new Float64Array(n).fill(1 / n);
+  for (let r = 0; r < it; r++) {
+    const nuevo = new Float64Array(n);
+    for (let i = 0; i < n; i++) {
+      let s = 0;
+      for (let j = 0; j < n; j++) if (W[j][i]) s += (W[j][i] / salida[j]) * pr[j];
+      nuevo[i] = (1 - d) / n + d * s;
+    }
+    pr = nuevo;
+  }
+  const orden = [...Array(n).keys()].sort((a, b) => pr[b] - pr[a]);
+  const elegidas = [];
+  for (const i of orden) {
+    const ok = elegidas.every((j) => {
+      let inter = 0;
+      for (const w of toks[i]) if (toks[j].has(w)) inter++;
+      return inter / Math.max(1, toks[i].size + toks[j].size - inter) < 0.5;
+    });
+    if (ok) elegidas.push(i);
+    if (elegidas.length === k) break;
+  }
+  return elegidas.sort((a, b) => a - b);
+}
+
+function acortar(o, maxc) {
+  o = o.trim();
+  if (o.length <= maxc) return o;
+  const corte = o.slice(0, maxc).replace(/\s+\S*$/, "");
+  return corte.replace(/[,;:]+$/, "") + "…";
+}
+
+function resumen(texto, idioma, k, maxc) {
+  texto = quitarCitas(texto);
+  const ss = oraciones(texto).filter((s) => !esRuido(s));
+  if (!ss.length || k <= 0) return [];
+  const cortas = ss.filter((s) => s.length <= maxc * 1.25);
+  let base = cortas.length >= Math.max(2 * k, 3) ? cortas : ss;
+  if (base.length > 600) { const paso = base.length / 600; base = Array.from({ length: 600 }, (_, i) => base[Math.floor(i * paso)]); }
+  return textrank(base, idioma, k).map((i) => acortar(base[i], Math.floor(maxc * 1.25)));
+}
+
+// --- palabras clave: TF-IDF entre secciones sobre frases candidatas (1–3 palabras)
+const raizPalabra = (w) => w.toLowerCase().replace(/(es|s)$/, "");
+
+function candidatosDe(texto, idioma) {
+  const sw = STOP[idioma] || STOP.en;
+  const frases = [];
+  for (const tr of quitarCitas(texto, true).split(/[.,;:!?()\[\]“”"¿¡—–]+/)) {
+    let cur = [];
+    for (const w0 of tr.split(/\s+/)) {
+      const w = w0.replace(/^[^\p{L}]+|[^\p{L}\-]+$/gu, "");
+      if (!w) continue;
+      const lw = w.toLowerCase();
+      if (sw.has(lw) || /\d/.test(w) || lw.length < 3) { if (cur.length) frases.push(cur); cur = []; }
+      else cur.push(w);
+    }
+    if (cur.length) frases.push(cur);
+  }
+  const cuenta = new Map(); // clave -> {n, variantes: Map, tokens}
+  for (const fr of frases) {
+    for (let a = 0; a < fr.length; a++) {
+      for (let len = 1; len <= 3 && a + len <= fr.length; len++) {
+        const toks = fr.slice(a, a + len);
+        const clave = toks.map((x) => x.toLowerCase()).join(" ");
+        let e = cuenta.get(clave);
+        if (!e) cuenta.set(clave, (e = { n: 0, variantes: new Map(), toks: toks.map((x) => x.toLowerCase()) }));
+        e.n++;
+        const disp = toks.join(" ");
+        e.variantes.set(disp, (e.variantes.get(disp) || 0) + 1);
+      }
+    }
+  }
+  return cuenta;
+}
+
+class IndiceClaves {
+  constructor(idioma) { this.idioma = idioma; this.docs = new Map(); this.df = new Map(); }
+  add(id, texto) {
+    if (texto.split(/\s+/).length < 25) return;
+    const c = candidatosDe(texto, this.idioma);
+    this.docs.set(id, { c, texto });
+    for (const k of c.keys()) this.df.set(k, (this.df.get(k) || 0) + 1);
+  }
+  top(id, n) {
+    const d = this.docs.get(id);
+    if (!d || n <= 0) return [];
+    const N = this.docs.size, gen = GENERICAS[this.idioma] || GENERICAS.en;
+    const sw = STOP[this.idioma] || STOP.en;
+    const texto = quitarCitas(d.texto, true);
+    const puntuados = [];
+    for (const [clave, e] of d.c) {
+      const nw = e.toks.length;
+      if (e.toks.some((t) => sw.has(t))) continue;
+      if (gen.has(e.toks[0]) || gen.has(e.toks[nw - 1])) continue;
+      if (/[’']s\b/.test(clave)) continue;
+      if (nw > 1 && (this.idioma === "es" ? /mente$/ : /ly$/).test(e.toks[0])) continue; // empieza con adverbio
+      if (nw === 1 && (e.n < 2 || clave.length < 5)) continue;
+      let disp = [...e.variantes.entries()].sort((a, b) => b[1] - a[1])[0][0];
+      if (nw === 1 && /^[A-ZÁÉÍÓÚÑ]/.test(disp)) {         // apellidos/nombres propios sueltos
+        const cap = (texto.match(new RegExp(`\\b${disp}\\b`, "g")) || []).length;
+        const low = (texto.match(new RegExp(`\\b${clave}\\b`, "g")) || []).length;
+        if (cap >= low) continue;
+      }
+      const idf = Math.log(1 + N / (this.df.get(clave) || 1));
+      const bonus = nw === 1 ? 0.55 : nw === 2 ? 1.2 : 1.3;
+      puntuados.push({ disp, stems: new Set(e.toks.map(raizPalabra)), s: (1 + Math.log(e.n)) * idf * bonus, nw });
+    }
+    puntuados.sort((a, b) => b.s - a.s);
+    const out = [];
+    const redundante = (rs) => out.some((o) => {
+      let inter = 0;
+      for (const x of rs) if (o.stems.has(x)) inter++;
+      if (!inter) return false;
+      const union = rs.size + o.stems.size - inter;
+      return inter === rs.size || inter === o.stems.size || inter / union >= 0.5;
+    });
+    for (const grupo of [puntuados.filter((p) => p.nw > 1), puntuados.filter((p) => p.nw === 1)]) {
+      for (const p of grupo) {
+        if (redundante(p.stems)) continue;
+        out.push(p);
+        if (out.length === n) return out.map((x) => x.disp);
+      }
+    }
+    return out.map((x) => x.disp);
+  }
+}
+
+// --------------------------------------------------- 4. modo paper (IMRaD)
+function etiquetaImrad(titulo) {
+  const t = titulo.trim().toLowerCase().replace(/^\d+(\.\d+)*[\s.:\-]*/, "");
+  for (const [re, et] of IMRAD) if (re.test(t)) return et;
+  return null;
+}
+
+function aplicarModoPaper(raiz) {
+  const rec = (nodo) => {
+    const nuevos = [];
+    for (const h of nodo.hijos) {
+      const et = etiquetaImrad(h.titulo);
+      if (et === "__DESCARTAR__") continue;
+      if (et && nodo.nivel === 0) {
+        const orig = h.titulo.replace(/^\d+(\.\d+)*[\s.:\-]*/, "").trim();
+        h.titulo = orig.toLowerCase() === et.toLowerCase() ? et : `${et} (${orig})`;
+      }
+      rec(h);
+      nuevos.push(h);
+    }
+    nodo.hijos = nuevos;
+  };
+  rec(raiz);
+  return raiz;
+}
+
+function extraerAbstract(lineas) {
+  const cuerpo = tamanoCuerpo(lineas);
+  const idx1 = lineas.map((l, i) => (l.pag === 1 ? i : -1)).filter((i) => i >= 0);
+  if (!idx1.length) return { texto: null, kws: [], fin: -1 };
+  const k = idx1.find((i) => RE_KEYWORDS.test(lineas[i].texto));
+  let kws = [];
+  if (k !== undefined) {
+    const resto = lineas[k].texto.match(RE_KEYWORDS)[2];
+    kws = resto.split(/[;,·]/).map((x) => x.trim()).filter(Boolean);
+  }
+  const a = idx1.find((i) => RE_ABS_LABEL.test(lineas[i].texto) && lineas[i].texto.length < 120);
+  if (a !== undefined) {
+    let fin = k;
+    if (fin === undefined) {
+      fin = a;
+      for (const i of idx1) {
+        if (i > a && lineas[i].size >= cuerpo + 0.5 && lineas[i].bold) break;
+        if (i > a) fin = i;
+      }
+    }
+    const partes = [lineas[a].texto.match(RE_ABS_LABEL)[2]];
+    for (let i = a + 1; i < fin; i++) if (lineas[i].pag === 1) partes.push(lineas[i].texto);
+    const txt = limpiar(partes.join(" "));
+    if (txt.split(/\s+/).length > 30) return { texto: txt, kws, fin };
+  }
+  if (k !== undefined) {
+    let j = k - 1;
+    const bloque = [];
+    while (j >= 0 && lineas[j].pag === 1 && lineas[j].size >= cuerpo - 2.0 && lineas[j].size < cuerpo - 0.4 && !lineas[j].ital) {
+      bloque.push(lineas[j].texto); j--;
+    }
+    if (bloque.length >= 3) {
+      const txt = limpiar(bloque.reverse().join(" "));
+      if (txt.split(/\s+/).length > 30) return { texto: txt, kws, fin: k };
+    }
+  }
+  return { texto: null, kws, fin: k !== undefined ? k : -1 };
+}
+
+// ------------------------------------------------------- 5. salida markdown
+const esc = (s) => s.replace(/\s*\n\s*/g, " ").replace(/</g, "&lt;").replace(/>/g, "&gt;").trim();
+
+function recolectar(nodo, ids = []) {
+  const texto = nodo.texto.join(" ").trim();
+  nodo._id = ids.length; ids.push(nodo);
+  nodo._texto = texto;
+  for (const h of nodo.hijos) recolectar(h, ids);
+  return ids;
+}
+
+function nodoAMd(nodo, o, idioma, idx, out, prof = 1) {
+  if (nodo.nivel > 0) {
+    out.push(`${"#".repeat(Math.min(prof + 1, 6))} ${esc(nodo.titulo)}`);
+    if (nodo._texto.split(/\s+/).length >= o.minPalabras) {
+      for (const k of idx.top(nodo._id, o.keywords)) out.push(`- **${esc(k)}**`);
+      for (const s of resumen(nodo._texto, idioma, o.oraciones, o.maxChars)) out.push(`- ${esc(s)}`);
+    }
+    for (const h of nodo.hijos) nodoAMd(h, o, idioma, idx, out, prof + 1);
+  } else {
+    if (nodo._texto.split(/\s+/).length >= Math.max(120, o.minPalabras) && (o.keywords || o.oraciones)) {
+      out.push("## Introducción (sin encabezado)");
+      for (const k of idx.top(nodo._id, o.keywords)) out.push(`- **${esc(k)}**`);
+      for (const s of resumen(nodo._texto, idioma, o.oraciones, o.maxChars)) out.push(`- ${esc(s)}`);
+    }
+    for (const h of nodo.hijos) nodoAMd(h, o, idioma, idx, out, prof);
+  }
+}
+
+function detectarIdioma(texto) {
+  const low = texto.toLowerCase();
+  const cuenta = (ws) => ws.reduce((a, w) => a + (low.split(` ${w} `).length - 1), 0);
+  const es = cuenta(["de", "la", "el", "que", "en", "los", "las", "por", "con", "para"]);
+  const en = cuenta(["the", "of", "and", "to", "in", "is", "that", "for", "with", "as"]);
+  return es > en ? "es" : "en";
+}
+
+function pareceePaper(doc, lineas) {
+  const txt = lineas.slice(0, 400).map((l) => l.texto).join(" ").toLowerCase();
+  const claves = ["abstract", "keywords", "resumen", "doi", "journal", "introduction", "método", "method"];
+  return doc.numPages <= 60 && claves.filter((k) => txt.includes(k)).length >= 2;
+}
+
+// ---------------------------------------------------------------------- API
+const OPCIONES_DEFECTO = {
+  modo: "auto", idioma: "auto", keywords: 4, oraciones: 1, maxChars: 200, minPalabras: 40,
+  soloEstructura: false, expandir: 3, colorFreeze: 2, ancho: 320,
+};
+
+async function convertirPdf(doc, nombreArchivo = "documento", opciones = {}, progreso = () => {}) {
+  const o = { ...OPCIONES_DEFECTO, ...opciones };
+  if (o.soloEstructura) { o.keywords = 0; o.oraciones = 0; }
+
+  // la extracción es lo lento: se guarda en el propio documento para regenerar al instante al cambiar opciones
+  if (!doc.__p2mLineas) doc.__p2mLineas = await extraerLineas(doc, progreso);
+  let lineas = doc.__p2mLineas;
+  if (lineas.reduce((a, l) => a + l.texto.length, 0) < 500) {
+    throw new Error("El PDF parece escaneado (casi no tiene texto). Aplica OCR primero (por ejemplo con ocrmypdf o Adobe Acrobat) y vuelve a intentarlo.");
+  }
+  progreso("Analizando estructura…", 1);
+
+  VOCAB_GUION.clear();
+  for (const l of lineas) for (const w of l.texto.match(/[A-Za-záéíóúñ]{2,}-[A-Za-záéíóúñ]{2,}/g) || []) VOCAB_GUION.add(w.toLowerCase());
+
+  const idioma = o.idioma === "auto" ? detectarIdioma(lineas.slice(0, 1500).map((l) => l.texto).join(" ")) : o.idioma;
+  let modo = o.modo;
+  if (modo === "auto") modo = pareceePaper(doc, lineas) ? "paper" : "libro";
+
+  let metaTitulo = "";
+  try { metaTitulo = ((await doc.getMetadata()).info.Title || "").trim(); } catch (e) { /* sin metadatos */ }
+  const stem = nombreArchivo.replace(/\.pdf$/i, "").replace(/_/g, " ");
+  const tituloDocumento = metaTitulo.length >= 8 && [...metaTitulo].filter((c) => c.toLowerCase() !== c.toUpperCase()).length >= 6 ? metaTitulo : stem;
+
+  const cuerpoG = tamanoCuerpo(lineas);
+  const paginas = new Map();
+  for (const l of lineas) if (l.size >= cuerpoG - 1.6) { if (!paginas.has(l.pag)) paginas.set(l.pag, []); paginas.get(l.pag).push(l.texto); }
+
+  let raiz = modo === "libro" || (await doc.getOutline())?.length ? await desdeToc(doc, paginas, tituloDocumento) : null;
+  let origen = "TOC embebido", abstract = null, kwsAutor = [];
+  if (!raiz) {
+    if (modo === "paper") {
+      const ab = extraerAbstract(lineas);
+      abstract = ab.texto; kwsAutor = ab.kws;
+      if (ab.fin >= 0) {
+        const c = tamanoCuerpo(lineas);
+        lineas = lineas.filter((l, i) => !(i <= ab.fin && l.pag === 1 && l.size < c + 4));
+      }
+    }
+    const { tituloDoc, eventos } = detectarEstructura(lineas);
+    raiz = construirArbol(eventos, tituloDoc || tituloDocumento);
+    origen = "tipografía";
+  }
+  if (modo === "paper") raiz = aplicarModoPaper(raiz);
+
+  // índice TF-IDF entre secciones (y el abstract)
+  const nodos = recolectar(raiz);
+  const idx = new IndiceClaves(idioma);
+  if (o.keywords) {
+    for (const n of nodos) idx.add(n._id, n._texto);
+    if (abstract) idx.add("abstract", abstract);
+  }
+
+  const titulo = esc(raiz.titulo);
+  const out = [`# ${titulo}`];
+  if ((abstract || kwsAutor.length) && o.keywords + o.oraciones > 0) {
+    out.push("## Resumen (abstract)");
+    if (abstract) for (const s of resumen(abstract, idioma, Math.min(3, Math.max(1, o.oraciones + 1)), o.maxChars + 60)) out.push(`- ${esc(s)}`);
+    if (kwsAutor.length) { out.push("### Palabras clave del autor"); for (const k of kwsAutor) out.push(`- **${esc(k)}**`); }
+  }
+  nodoAMd(raiz, o, idioma, idx, out, 1);
+
+  const fm = ["---", `title: ${titulo}`, "markmap:", `  colorFreezeLevel: ${o.colorFreeze}`,
+    `  initialExpandLevel: ${o.expandir}`, `  maxWidth: ${o.ancho}`, "---", ""];
+  const markdown = fm.concat(out).join("\n") + "\n";
+  const aviso = doc.__p2mLineas.sinEstilos
+    ? "No se pudo leer el estilo de letra (negrita/cursiva) de este PDF; los subtítulos dentro de párrafos pueden no detectarse." : "";
+  return { markdown, info: { modo, idioma, origen, paginas: doc.numPages, lineas: markdown.split("\n").length - 1, aviso } };
+}
+
+// ===== interfaz =====
+
+// build "legacy": incluye polyfills; la moderna falla en navegadores sin las últimas funciones de JavaScript
+const PDFJS_BASE = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299/legacy/build/";
+const LIBS_EXPORT = [
+  "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js",
+  "https://cdn.jsdelivr.net/npm/markmap-view@0.18.12/dist/browser/index.js",
+  "https://cdn.jsdelivr.net/npm/markmap-lib@0.18.12/dist/browser/index.iife.js",
+];
+const $ = (id) => document.getElementById(id);
+
+// ---------- tema
+const raiz = document.documentElement;
+const guardado = (() => { try { return localStorage.getItem("tema"); } catch (e) { return null; } })();
+if (guardado) raiz.dataset.tema = guardado;
+$("btnTema").addEventListener("click", () => {
+  const oscuroAhora = raiz.dataset.tema ? raiz.dataset.tema === "oscuro" : matchMedia("(prefers-color-scheme: dark)").matches;
+  raiz.dataset.tema = oscuroAhora ? "claro" : "oscuro";
+  try { localStorage.setItem("tema", raiz.dataset.tema); } catch (e) { /* sin almacenamiento */ }
+});
+
+// ---------- pdf.js (carga diferida: si el CDN falla, se avisa con claridad)
+let pdfjsLib = null;
+const cargaPdfjs = import(PDFJS_BASE + "pdf.min.mjs").then((m) => {
+  m.GlobalWorkerOptions.workerSrc = PDFJS_BASE + "pdf.worker.min.mjs";
+  pdfjsLib = m;
+}).catch(() => { pdfjsLib = null; });
+
+// ---------- estado
+let doc = null, nombre = "documento.pdf", markdown = "", mm = null, ocupado = false, temporizador = null;
+
+function mostrarMsg(tipo, texto) {
+  const m = $("msg");
+  m.className = "msg" + (texto ? " " + tipo : "");
+  m.textContent = texto || "";
+}
+function progreso(texto, frac) {
+  $("estado").textContent = texto || "";
+  const b = $("progreso");
+  b.classList.toggle("on", frac != null && frac < 1);
+  $("barra").style.width = Math.round((frac || 0) * 100) + "%";
+}
+const leerOpciones = () => ({
+  modo: $("modo").value, idioma: $("idioma").value,
+  keywords: Math.max(0, Math.min(8, parseInt($("keywords").value, 10) || 0)),
+  oraciones: Math.max(0, Math.min(3, parseInt($("oraciones").value, 10) || 0)),
+  expandir: parseInt($("expandir").value, 10), soloEstructura: $("soloEstructura").checked,
+});
+
+// ---------- archivo
+const drop = $("drop"), input = $("archivo");
+drop.addEventListener("click", () => input.click());
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); input.click(); } });
+["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => { const f = e.dataTransfer.files[0]; if (f) cargar(f); });
+input.addEventListener("change", () => { if (input.files[0]) cargar(input.files[0]); });
+
+async function cargar(file) {
+  mostrarMsg("", "");
+  if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") { mostrarMsg("err", "El archivo debe ser un PDF."); return; }
+  $("nombreArchivo").textContent = file.name;
+  nombre = file.name;
+  progreso("Abriendo el PDF…", 0.02);
+  await cargaPdfjs;
+  if (!pdfjsLib) { progreso("", null); mostrarMsg("err", "No se pudo cargar el lector de PDF (pdf.js). Revisa tu conexión a internet y recarga la página."); return; }
+  try {
+    const datos = new Uint8Array(await file.arrayBuffer());
+    if (doc) { try { await doc.destroy(); } catch (e) { /* ya liberado */ } }
+    doc = await pdfjsLib.getDocument({ data: datos, fontExtraProperties: true, isEvalSupported: false }).promise;
+    $("btnGenerar").disabled = false;
+    await generar();
+  } catch (err) {
+    doc = null; $("btnGenerar").disabled = true; progreso("", null);
+    const protegido = err && err.name === "PasswordException";
+    mostrarMsg("err", protegido ? "El PDF está protegido con contraseña." : "No se pudo leer el PDF: " + (err && err.message ? err.message : err));
+  }
+}
+
+// ---------- generar
+async function generar() {
+  if (!doc || ocupado) return;
+  ocupado = true; $("btnGenerar").disabled = true; mostrarMsg("", "");
+  try {
+    const opts = leerOpciones();
+    const { markdown: md, info } = await convertirPdf(doc, nombre, opts, progreso);
+    markdown = md;
+    $("md").value = md;
+    $("chips").innerHTML = "";
+    const datos = [info.modo === "paper" ? "Paper" : "Libro / informe", info.idioma === "es" ? "Español" : "Inglés",
+      "Jerarquía: " + info.origen, info.paginas + " páginas"];
+    for (const d of datos) { const c = document.createElement("span"); c.className = "chip"; c.textContent = d; $("chips").append(c); }
+    $("resultado").classList.add("on");
+    seleccionarTab("mapa");
+    dibujar(md);
+    progreso("Listo. Puedes cambiar las opciones y se regenera al instante.", null);
+    if (info.lineas < 12) mostrarMsg("warn", "El mapa salió muy pequeño: el documento no tiene títulos detectables. Prueba con el otro tipo de documento (Paper / Libro).");
+    else if (info.aviso) mostrarMsg("warn", info.aviso);
+    $("resultado").scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (err) {
+    progreso("", null);
+    mostrarMsg("err", err && err.message ? err.message : String(err));
+  } finally {
+    ocupado = false; $("btnGenerar").disabled = false;
+  }
+}
+$("btnGenerar").addEventListener("click", generar);
+for (const id of ["modo", "idioma", "keywords", "oraciones", "expandir", "soloEstructura"]) {
+  $(id).addEventListener("change", () => { if (!doc) return; clearTimeout(temporizador); temporizador = setTimeout(generar, 350); });
+}
+
+// ---------- mapa
+function dibujar(md) {
+  const { Transformer, Markmap, deriveOptions } = window.markmap || {};
+  if (!Transformer || !Markmap) { mostrarMsg("err", "No se pudo cargar markmap desde internet. Revisa tu conexión y recarga la página."); return; }
+  const t = new Transformer();
+  const { root, frontmatter } = t.transform(md);
+  const opts = deriveOptions ? deriveOptions(frontmatter && frontmatter.markmap) : {};
+  if (mm) { mm.setOptions(opts); mm.setData(root); mm.fit(); }
+  else { mm = Markmap.create("#mapa", opts, root); }
+}
+$("btnAjustar").addEventListener("click", () => mm && mm.fit());
+$("btnPantalla").addEventListener("click", () => {
+  const w = $("mapaWrap");
+  if (document.fullscreenElement) document.exitFullscreen(); else if (w.requestFullscreen) w.requestFullscreen();
+});
+document.addEventListener("fullscreenchange", () => setTimeout(() => mm && mm.fit(), 120));
+
+// ---------- pestañas
+function seleccionarTab(cual) {
+  const mapa = cual === "mapa";
+  $("tabMapa").setAttribute("aria-selected", mapa); $("tabMd").setAttribute("aria-selected", !mapa);
+  $("vMapa").classList.toggle("on", mapa); $("vMd").classList.toggle("on", !mapa);
+  if (mapa && mm) setTimeout(() => mm.fit(), 60);
+}
+$("tabMapa").addEventListener("click", () => seleccionarTab("mapa"));
+$("tabMd").addEventListener("click", () => seleccionarTab("md"));
+$("btnActualizar").addEventListener("click", () => { markdown = $("md").value; seleccionarTab("mapa"); dibujar(markdown); });
+$("btnCopiar").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText($("md").value); progreso("Markdown copiado.", null); }
+  catch (e) { $("md").select(); progreso("Selecciona el texto y copia con Ctrl+C.", null); }
+});
+
+// ---------- descargas
+function descargar(nombreArchivo, texto, tipo) {
+  const url = URL.createObjectURL(new Blob([texto], { type: tipo }));
+  const a = document.createElement("a"); a.href = url; a.download = nombreArchivo; document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+const base = () => nombre.replace(/\.pdf$/i, "") || "mapa";
+$("btnMd").addEventListener("click", () => descargar(base() + ".md", $("md").value, "text/markdown;charset=utf-8"));
+$("btnHtml").addEventListener("click", async () => {
+  const md = $("md").value;
+  let libs;
+  try { // se incrustan las librerías para que el HTML funcione sin internet
+    const textos = await Promise.all(LIBS_EXPORT.map((u) => fetch(u).then((r) => { if (!r.ok) throw new Error(u); return r.text(); })));
+    libs = textos.map((t) => "<script>" + t.replace(/<\/script/gi, "<\\/script") + "<\/script>").join("\n");
+  } catch (e) {
+    libs = LIBS_EXPORT.map((u) => `<script src="${u}"><\/script>`).join("\n");
+  }
+  const titulo = (md.match(/^# (.+)$/m) || [, base()])[1].replace(/[<>&]/g, "");
+  const datos = JSON.stringify(md).replace(/<\//g, "<\\/");
+  const html = `<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${titulo}</title>
+<style>html,body{margin:0;height:100%;font-family:system-ui,sans-serif}#mapa{width:100vw;height:100vh;display:block}</style>
+</head><body><svg id="mapa"></svg>
+${libs}
+<script>
+const md = ${datos};
+const { Transformer, Markmap, deriveOptions } = window.markmap;
+const { root, frontmatter } = new Transformer().transform(md);
+Markmap.create("#mapa", deriveOptions ? deriveOptions(frontmatter && frontmatter.markmap) : {}, root);
+<\/script></body></html>`;
+  descargar(base() + ".html", html, "text/html;charset=utf-8");
+});
+</script>
+</body>
+</html>
