@@ -145,6 +145,17 @@
           </label>
         </div>
         <div class="fila">
+          <label class="campo">Detalle en papers
+            <select id="detalle">
+              <option value="1" selected>Extendido (concepto → idea → apoyo)</option>
+              <option value="0">Básico (solo palabras clave)</option>
+            </select>
+          </label>
+          <label class="campo">Oraciones de apoyo por concepto
+            <input type="number" id="apoyo" min="0" max="4" value="2">
+          </label>
+        </div>
+        <div class="fila">
           <label class="campo">Niveles abiertos al inicio
             <select id="expandir">
               <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option>
@@ -199,7 +210,7 @@
   <section class="notas" aria-label="Notas">
     <div><b>Funciona mejor con</b> PDF con texto seleccionable. Si el PDF es una imagen escaneada, aplica OCR antes.</div>
     <div><b>Libros:</b> si el PDF trae marcadores (índice), se usan como jerarquía; si no, se detectan los títulos por el tamaño y el estilo de la letra.</div>
-    <div><b>Papers:</b> se reconocen Introducción, Método, Resultados, Discusión, Limitaciones y Conclusiones, y se omiten las referencias.</div>
+    <div><b>Papers:</b> se reconocen Introducción, Método, Resultados, Discusión, Limitaciones y Conclusiones, y se omiten las referencias. En modo extendido, cada palabra clave se despliega en dos niveles: la oración que mejor la explica y, debajo, oraciones de apoyo.</div>
     <div><b>Revisa el resultado:</b> las palabras clave y las oraciones se eligen por estadística, no por comprensión del texto. Puedes corregir el Markdown en la pestaña correspondiente.</div>
   </section>
   <footer>Librerías: pdf.js (Mozilla) para leer el PDF y markmap para dibujar el mapa. Todo corre localmente en tu navegador.</footer>
@@ -564,9 +575,27 @@ function esRuido(o) {
   return nums > 0.35 * o.split(/\s+/).length;
 }
 
+const solape = (a, b) => {           // Jaccard entre conjuntos de tokens
+  let inter = 0;
+  for (const w of a) if (b.has(w)) inter++;
+  return inter / Math.max(1, a.size + b.size - inter);
+};
+
 function textrank(sents, idioma, k, d = 0.85, it = 40) {
   const n = sents.length;
   if (n <= k) return sents.map((_, i) => i);
+  const { toks, pr } = grafoTextrank(sents, idioma, d, it);
+  const orden = [...Array(n).keys()].sort((a, b) => pr[b] - pr[a]);
+  const elegidas = [];
+  for (const i of orden) {
+    if (elegidas.every((j) => solape(toks[i], toks[j]) < 0.5)) elegidas.push(i);
+    if (elegidas.length === k) break;
+  }
+  return elegidas.sort((a, b) => a - b);
+}
+
+function grafoTextrank(sents, idioma, d = 0.85, it = 40) {
+  const n = sents.length;
   const toks = sents.map((s) => new Set(tokensContenido(s, idioma)));
   const W = Array.from({ length: n }, () => new Float64Array(n));
   for (let i = 0; i < n; i++) {
@@ -589,18 +618,7 @@ function textrank(sents, idioma, k, d = 0.85, it = 40) {
     }
     pr = nuevo;
   }
-  const orden = [...Array(n).keys()].sort((a, b) => pr[b] - pr[a]);
-  const elegidas = [];
-  for (const i of orden) {
-    const ok = elegidas.every((j) => {
-      let inter = 0;
-      for (const w of toks[i]) if (toks[j].has(w)) inter++;
-      return inter / Math.max(1, toks[i].size + toks[j].size - inter) < 0.5;
-    });
-    if (ok) elegidas.push(i);
-    if (elegidas.length === k) break;
-  }
-  return elegidas.sort((a, b) => a - b);
+  return { toks, pr };
 }
 
 function acortar(o, maxc) {
@@ -618,6 +636,36 @@ function resumen(texto, idioma, k, maxc) {
   let base = cortas.length >= Math.max(2 * k, 3) ? cortas : ss;
   if (base.length > 600) { const paso = base.length / 600; base = Array.from({ length: 600 }, (_, i) => base[Math.floor(i * paso)]); }
   return textrank(base, idioma, k).map((i) => acortar(base[i], Math.floor(maxc * 1.25)));
+}
+
+// --- detalle en dos niveles: concepto clave -> oración que lo explica -> oraciones de apoyo
+function detallar(texto, idioma, kws, kCentral, maxc, nApoyo) {
+  let ss = oraciones(quitarCitas(texto)).filter((s) => !esRuido(s));
+  if (ss.length > 400) { const paso = ss.length / 400; ss = Array.from({ length: 400 }, (_, i) => ss[Math.floor(i * paso)]); }
+  if (!ss.length) return { centrales: [], conceptos: kws.map((k) => ({ k, idea: null, apoyo: [] })) };
+  const lim = Math.floor(maxc * 1.25);
+  const { toks, pr } = grafoTextrank(ss, idioma);
+  const raices = toks.map((t) => new Set([...t].map(raizPalabra)));
+  const orden = [...ss.keys()].sort((a, b) => pr[b] - pr[a]);
+  const usadas = [];
+  const libre = (i) => usadas.every((j) => j !== i && solape(toks[i], toks[j]) < 0.4);
+  const tomar = (cands, max) => {
+    const out = [];
+    for (const i of cands) { if (out.length === max) break; if (libre(i)) { out.push(i); usadas.push(i); } }
+    return out;
+  };
+  const centrales = tomar(orden, kCentral).sort((a, b) => a - b);
+  const conceptos = kws.map((k) => {
+    const rk = tokensContenido(k, idioma).map(raizPalabra);
+    const cands = rk.length ? orden.filter((i) => rk.every((r) => raices[i].has(r))) : [];
+    const [idea, ...apoyo] = tomar(cands, 1 + nApoyo);
+    return {
+      k,
+      idea: idea === undefined ? null : acortar(ss[idea], lim),
+      apoyo: apoyo.sort((a, b) => a - b).map((i) => acortar(ss[i], lim)),
+    };
+  });
+  return { centrales: centrales.map((i) => acortar(ss[i], lim)), conceptos };
 }
 
 // --- palabras clave: TF-IDF entre secciones sobre frases candidatas (1–3 palabras)
@@ -782,19 +830,33 @@ function recolectar(nodo, ids = []) {
   return ids;
 }
 
+function contenidoMd(nodo, o, idioma, idx, out) {
+  if (!o.keywords && !o.oraciones) return;
+  const kws = idx.top(nodo._id, o.keywords);
+  if (!o.detalle) {
+    for (const k of kws) out.push(`- **${esc(k)}**`);
+    for (const s of resumen(nodo._texto, idioma, o.oraciones, o.maxChars)) out.push(`- ${esc(s)}`);
+    return;
+  }
+  const { centrales, conceptos } = detallar(nodo._texto, idioma, kws, o.oraciones, o.maxChars, o.apoyo);
+  for (const s of centrales) out.push(`- ${esc(s)}`);
+  for (const c of conceptos) {
+    out.push(`- **${esc(c.k)}**`);
+    if (!c.idea) continue;
+    out.push(`  - ${esc(c.idea)}`);
+    for (const s of c.apoyo) out.push(`    - ${esc(s)}`);
+  }
+}
+
 function nodoAMd(nodo, o, idioma, idx, out, prof = 1) {
   if (nodo.nivel > 0) {
     out.push(`${"#".repeat(Math.min(prof + 1, 6))} ${esc(nodo.titulo)}`);
-    if (nodo._texto.split(/\s+/).length >= o.minPalabras) {
-      for (const k of idx.top(nodo._id, o.keywords)) out.push(`- **${esc(k)}**`);
-      for (const s of resumen(nodo._texto, idioma, o.oraciones, o.maxChars)) out.push(`- ${esc(s)}`);
-    }
+    if (nodo._texto.split(/\s+/).length >= o.minPalabras) contenidoMd(nodo, o, idioma, idx, out);
     for (const h of nodo.hijos) nodoAMd(h, o, idioma, idx, out, prof + 1);
   } else {
     if (nodo._texto.split(/\s+/).length >= Math.max(120, o.minPalabras) && (o.keywords || o.oraciones)) {
       out.push("## Introducción (sin encabezado)");
-      for (const k of idx.top(nodo._id, o.keywords)) out.push(`- **${esc(k)}**`);
-      for (const s of resumen(nodo._texto, idioma, o.oraciones, o.maxChars)) out.push(`- ${esc(s)}`);
+      contenidoMd(nodo, o, idioma, idx, out);
     }
     for (const h of nodo.hijos) nodoAMd(h, o, idioma, idx, out, prof);
   }
@@ -817,7 +879,7 @@ function pareceePaper(doc, lineas) {
 // ---------------------------------------------------------------------- API
 const OPCIONES_DEFECTO = {
   modo: "auto", idioma: "auto", keywords: 4, oraciones: 1, maxChars: 200, minPalabras: 40,
-  soloEstructura: false, expandir: 3, colorFreeze: 2, ancho: 320,
+  detalle: true, apoyo: 2, soloEstructura: false, expandir: 3, colorFreeze: 2, ancho: 320,
 };
 
 async function convertirPdf(doc, nombreArchivo = "documento", opciones = {}, progreso = () => {}) {
@@ -838,6 +900,7 @@ async function convertirPdf(doc, nombreArchivo = "documento", opciones = {}, pro
   const idioma = o.idioma === "auto" ? detectarIdioma(lineas.slice(0, 1500).map((l) => l.texto).join(" ")) : o.idioma;
   let modo = o.modo;
   if (modo === "auto") modo = pareceePaper(doc, lineas) ? "paper" : "libro";
+  o.detalle = o.detalle && modo === "paper"; // en libros el detalle extra haría el mapa inmanejable
 
   let metaTitulo = "";
   try { metaTitulo = ((await doc.getMetadata()).info.Title || "").trim(); } catch (e) { /* sin metadatos */ }
@@ -936,6 +999,8 @@ const leerOpciones = () => ({
   modo: $("modo").value, idioma: $("idioma").value,
   keywords: Math.max(0, Math.min(8, parseInt($("keywords").value, 10) || 0)),
   oraciones: Math.max(0, Math.min(3, parseInt($("oraciones").value, 10) || 0)),
+  detalle: $("detalle").value === "1",
+  apoyo: Math.max(0, Math.min(4, parseInt($("apoyo").value, 10) || 0)),
   expandir: parseInt($("expandir").value, 10), soloEstructura: $("soloEstructura").checked,
 });
 
@@ -997,7 +1062,7 @@ async function generar() {
   }
 }
 $("btnGenerar").addEventListener("click", generar);
-for (const id of ["modo", "idioma", "keywords", "oraciones", "expandir", "soloEstructura"]) {
+for (const id of ["modo", "idioma", "keywords", "oraciones", "detalle", "apoyo", "expandir", "soloEstructura"]) {
   $(id).addEventListener("change", () => { if (!doc) return; clearTimeout(temporizador); temporizador = setTimeout(generar, 350); });
 }
 

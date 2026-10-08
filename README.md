@@ -18,6 +18,7 @@ Página de un solo archivo (`index.html`). El PDF se procesa en el navegador de 
 - **Libros:** usa los marcadores (índice) del PDF si existen; si no, detecta títulos por tamaño y estilo de letra.
 - **Papers:** reconoce Introducción, Método, Resultados, Discusión, Limitaciones y Conclusiones, extrae el abstract y las palabras clave del autor, y omite referencias.
 - **Cada sección:** palabras clave (TF-IDF entre secciones) y oraciones centrales (TextRank).
+- **Detalle extendido (papers):** cada palabra clave se despliega en dos niveles más: la oración que mejor la explica y, debajo, hasta 4 oraciones de apoyo (2 por defecto). Se puede volver al modo básico en las opciones.
 - **Descargas:** Markdown (`.md`) y un HTML interactivo que funciona sin internet.
 - **Editable:** en la pestaña Markdown puedes corregir el resultado y actualizar el mapa.
 
